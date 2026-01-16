@@ -70,33 +70,47 @@ def actualizar_ubicaciones():
     global ubicaciones_actuales, ultima_actualizacion
     
     if not api_gps or not api_gps.access_token:
+        print("⚠️ API no inicializada o sin token")
         return
     
     try:
+        print("📱 Solicitando lista de dispositivos...")
         dispositivos = api_gps.listar_dispositivos()
+        
         if not dispositivos:
+            print("⚠️ No se obtuvieron dispositivos de la API")
             return
+        
+        print(f"✅ Se encontraron {len(dispositivos)} dispositivos")
         
         nuevas_ubicaciones = []
         
         for disp in dispositivos:
             imei = disp.get('imei')
+            nombre = disp.get('deviceName', 'Sin nombre')
+            print(f"📍 Obteniendo ubicación de {nombre} ({imei})...")
+            
             try:
                 ubicacion = api_gps.obtener_ubicacion(imei)
                 if ubicacion:
-                    ubicacion['deviceName'] = disp.get('deviceName', 'Sin nombre')
+                    ubicacion['deviceName'] = nombre
                     ubicacion['imei'] = imei
                     nuevas_ubicaciones.append(ubicacion)
+                    print(f"   ✅ Ubicación obtenida: {ubicacion.get('lat')}, {ubicacion.get('lng')}")
+                else:
+                    print(f"   ⚠️ No se obtuvo ubicación para {nombre}")
             except Exception as e:
-                print(f"Error obteniendo ubicación {imei}: {str(e)}")
+                print(f"   ❌ Error obteniendo ubicación {imei}: {str(e)}")
         
         ubicaciones_actuales = nuevas_ubicaciones
         ultima_actualizacion = datetime.now()
         
-        print(f"📡 Actualizado: {len(nuevas_ubicaciones)} dispositivos")
+        print(f"📡 Actualizado: {len(nuevas_ubicaciones)} dispositivos con ubicación")
         
     except Exception as e:
         print(f"❌ Error actualizando: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
 def bucle_actualizacion():
     """Bucle que actualiza automáticamente"""
@@ -359,6 +373,69 @@ def api_estado():
         "intervalo": CONFIG["INTERVALO"],
         "ultima_actualizacion": ultima_actualizacion.isoformat() if ultima_actualizacion else None
     })
+
+@app.route('/api/diagnostico')
+def api_diagnostico():
+    """API: Diagnóstico del sistema para debugging"""
+    try:
+        diagnostico = {
+            "servidor": {
+                "status": "online",
+                "timestamp": datetime.now(UTC).isoformat()
+            },
+            "configuracion": {
+                "intervalo": CONFIG["INTERVALO"],
+                "app_key_configurado": bool(CONFIG["APP_KEY"]),
+                "app_secret_configurado": bool(CONFIG["APP_SECRET"]),
+                "email_configurado": bool(CONFIG["USER_EMAIL"]),
+                "password_configurado": bool(CONFIG["USER_PASSWORD"]),
+                "email": CONFIG["USER_EMAIL"] if CONFIG["USER_EMAIL"] else "NO CONFIGURADO"
+            },
+            "api": {
+                "inicializada": api_gps is not None,
+                "token_activo": api_gps.access_token is not None if api_gps else False,
+                "token_preview": api_gps.access_token[:20] + "..." if api_gps and api_gps.access_token else "NO TOKEN"
+            },
+            "datos": {
+                "ubicaciones_actuales": len(ubicaciones_actuales),
+                "ultima_actualizacion": ultima_actualizacion.isoformat() if ultima_actualizacion else None,
+                "dispositivos": [
+                    {
+                        "deviceName": u.get('deviceName'),
+                        "imei": u.get('imei'),
+                        "status": u.get('status')
+                    } for u in ubicaciones_actuales
+                ]
+            }
+        }
+        
+        # Intentar obtener dispositivos en tiempo real
+        if api_gps and api_gps.access_token:
+            try:
+                dispositivos_raw = api_gps.listar_dispositivos()
+                diagnostico["test_api"] = {
+                    "success": True,
+                    "total_dispositivos": len(dispositivos_raw) if dispositivos_raw else 0,
+                    "dispositivos": dispositivos_raw if dispositivos_raw else []
+                }
+            except Exception as e:
+                diagnostico["test_api"] = {
+                    "success": False,
+                    "error": str(e)
+                }
+        else:
+            diagnostico["test_api"] = {
+                "success": False,
+                "error": "API no inicializada o sin token"
+            }
+        
+        return jsonify(diagnostico)
+        
+    except Exception as e:
+        return jsonify({
+            "error": str(e),
+            "tipo": type(e).__name__
+        }), 500
 
 @app.route('/api/geojson')
 def api_geojson():
