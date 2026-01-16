@@ -47,6 +47,12 @@ def inicializar_api():
     """Inicializa la API"""
     global api_gps
     
+    print("\n🔑 Inicializando API TrackSolidPro...")
+    print(f"   Email: {CONFIG['USER_EMAIL']}")
+    print(f"   APP_KEY configurado: {bool(CONFIG['APP_KEY'])}")
+    print(f"   APP_SECRET configurado: {bool(CONFIG['APP_SECRET'])}")
+    print(f"   PASSWORD configurado: {bool(CONFIG['USER_PASSWORD'])}")
+    
     try:
         api_gps = TrackSolidAPI(
             CONFIG["APP_KEY"],
@@ -55,14 +61,18 @@ def inicializar_api():
             CONFIG["USER_PASSWORD"]
         )
         
+        print("   Solicitando token de acceso...")
         if api_gps.obtener_token():
-            print(f"✅ API inicializada correctamente")
+            print(f"   ✅ Token obtenido: {api_gps.access_token[:20]}...")
+            print(f"   ✅ API inicializada correctamente")
             return True
         else:
-            print("❌ Error al obtener token")
+            print("   ❌ Error al obtener token")
             return False
     except Exception as e:
-        print(f"❌ Error: {str(e)}")
+        print(f"   ❌ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def actualizar_ubicaciones():
@@ -437,6 +447,32 @@ def api_diagnostico():
             "tipo": type(e).__name__
         }), 500
 
+@app.route('/api/forzar-actualizacion')
+def api_forzar_actualizacion():
+    """API: Fuerza una actualización inmediata de los dispositivos"""
+    try:
+        if not api_gps or not api_gps.access_token:
+            return jsonify({
+                "success": False,
+                "error": "API no inicializada o sin token"
+            }), 500
+        
+        print("\n🔄 Forzando actualización manual...")
+        actualizar_ubicaciones()
+        
+        return jsonify({
+            "success": True,
+            "mensaje": "Actualización forzada completada",
+            "dispositivos": len(ubicaciones_actuales),
+            "ultima_actualizacion": ultima_actualizacion.isoformat() if ultima_actualizacion else None
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 @app.route('/api/geojson')
 def api_geojson():
     """API: Devuelve las ubicaciones en formato GeoJSON"""
@@ -489,26 +525,34 @@ def api_geojson():
             "error": str(e)
         }), 500
 
-if __name__ == '__main__':
+# Inicializar la API al importar el módulo (para Gunicorn/Render)
+def inicializar_aplicacion():
+    """Inicializa la aplicación al arrancar"""
+    global api_gps, ubicaciones_actuales, ultima_actualizacion
+    
     print("="*80)
-    print("🛰️ GPS TRACKER - APLICACIÓN SIMPLIFICADA")
+    print("🛰️ GPS TRACKER - INICIALIZANDO")
     print("="*80)
     
-    # Inicializar
     if inicializar_api():
-        # Primera actualización
+        print("✅ API inicializada, obteniendo primera actualización...")
         actualizar_ubicaciones()
         
         # Iniciar bucle de actualización en segundo plano
         hilo = threading.Thread(target=bucle_actualizacion, daemon=True)
         hilo.start()
-        
-        # Iniciar servidor
-        port = int(os.environ.get('PORT', 5000))
-        print(f"\n🌐 Servidor iniciando en puerto {port}")
-        print(f"📱 Accede a: http://localhost:{port}")
-        print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
-        
-        app.run(host='0.0.0.0', port=port, debug=False)
+        print("✅ Bucle de actualización iniciado")
     else:
         print("❌ No se pudo inicializar la API")
+
+# Inicializar automáticamente cuando se importa el módulo
+inicializar_aplicacion()
+
+if __name__ == '__main__':
+    # Iniciar servidor Flask directamente (para desarrollo local)
+    port = int(os.environ.get('PORT', 5000))
+    print(f"\n🌐 Servidor iniciando en puerto {port}")
+    print(f"📱 Accede a: http://localhost:{port}")
+    print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
+    
+    app.run(host='0.0.0.0', port=port, debug=False)
