@@ -3,8 +3,6 @@ EXTRACTOR DE DATOS GPS - TRACKSOLIDPRO
 ======================================
 Script para extraer coordenadas, velocidad y datos de dispositivos GPS
 
-Autor: Asistente de programación
-Fecha: 2025-01-13
 """
 
 import hashlib
@@ -38,6 +36,8 @@ class TrackSolidAPI:
         self.user_password_md5 = self._md5_hash(user_password)
         self.endpoint = "https://us-open.tracksolidpro.com/route/rest"
         self.access_token = None
+        self.token_expiration = None  # Timestamp de expiración del token
+        self.token_expires_in = 3600  # Duración del token en segundos (1 hora)
         
     def _md5_hash(self, text: str) -> str:
         """Convierte un texto a hash MD5"""
@@ -90,18 +90,28 @@ class TrackSolidAPI:
                 print(f"Respuesta del servidor: {e.response.text}")
             return None
     
-    def obtener_token(self) -> bool:
+    def obtener_token(self, forzar: bool = False) -> bool:
         """
         Obtiene el token de acceso de la API
+        
+        Args:
+            forzar: Si es True, obtiene un nuevo token aunque el actual no haya expirado
         
         Returns:
             True si se obtuvo el token, False si hubo error
         """
+        # Si ya tenemos un token válido y no se fuerza la renovación, no hacer nada
+        if not forzar and self.access_token and self.token_expiration:
+            tiempo_restante = (self.token_expiration - time.time())
+            if tiempo_restante > 300:  # Si quedan más de 5 minutos
+                print(f"ℹ️ Token aún válido (expira en {int(tiempo_restante/60)} minutos)")
+                return True
+        
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
         
         params = {
             "app_key": self.app_key,
-            "expires_in": "3600",
+            "expires_in": str(self.token_expires_in),
             "format": "json",
             "method": "jimi.oauth.token.get",
             "sign_method": "md5",
@@ -119,11 +129,34 @@ class TrackSolidAPI:
         
         if response and response.get('code') == 0:
             self.access_token = response['result']['accessToken']
+            # Calcular tiempo de expiración (restar 5 minutos como margen de seguridad)
+            self.token_expiration = time.time() + self.token_expires_in - 300
             print(f"✅ Token obtenido: {self.access_token[:20]}...")
+            print(f"   Expira en: {self.token_expires_in/60} minutos")
             return True
         else:
             print(f"❌ Error al obtener token: {response}")
             return False
+    
+    def verificar_y_renovar_token(self) -> bool:
+        """
+        Verifica si el token está por expirar y lo renueva si es necesario
+        
+        Returns:
+            True si el token es válido o se renovó exitosamente
+        """
+        if not self.access_token or not self.token_expiration:
+            print("⚠️ No hay token, obteniendo uno nuevo...")
+            return self.obtener_token()
+        
+        tiempo_restante = self.token_expiration - time.time()
+        
+        # Si quedan menos de 5 minutos, renovar
+        if tiempo_restante < 300:
+            print(f"🔄 Token por expirar (quedan {int(tiempo_restante/60)} minutos), renovando...")
+            return self.obtener_token(forzar=True)
+        
+        return True
     
     def listar_dispositivos(self) -> Optional[List[dict]]:
         """
@@ -132,8 +165,9 @@ class TrackSolidAPI:
         Returns:
             Lista de dispositivos o None si hay error
         """
-        if not self.access_token:
-            print("⚠️ Primero debes obtener un token")
+        # Verificar y renovar token si es necesario
+        if not self.verificar_y_renovar_token():
+            print("⚠️ No se pudo obtener/renovar el token")
             return None
         
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
@@ -172,8 +206,9 @@ class TrackSolidAPI:
         Returns:
             Datos de ubicación o None si hay error
         """
-        if not self.access_token:
-            print("⚠️ Primero debes obtener un token")
+        # Verificar y renovar token si es necesario
+        if not self.verificar_y_renovar_token():
+            print("⚠️ No se pudo obtener/renovar el token")
             return None
         
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
@@ -217,8 +252,9 @@ class TrackSolidAPI:
         Returns:
             Lista de puntos de ruta o None si hay error
         """
-        if not self.access_token:
-            print("⚠️ Primero debes obtener un token")
+        # Verificar y renovar token si es necesario
+        if not self.verificar_y_renovar_token():
+            print("⚠️ No se pudo obtener/renovar el token")
             return None
         
         timestamp = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
