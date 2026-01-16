@@ -404,7 +404,9 @@ def api_diagnostico():
             "api": {
                 "inicializada": api_gps is not None,
                 "token_activo": api_gps.access_token is not None if api_gps else False,
-                "token_preview": api_gps.access_token[:20] + "..." if api_gps and api_gps.access_token else "NO TOKEN"
+                "token_preview": api_gps.access_token[:20] + "..." if api_gps and api_gps.access_token else "NO TOKEN",
+                "token_expira_en": int((api_gps.token_expiration - time.time()) / 60) if api_gps and api_gps.token_expiration else None,
+                "token_expira_timestamp": datetime.fromtimestamp(api_gps.token_expiration).isoformat() if api_gps and api_gps.token_expiration else None
             },
             "datos": {
                 "ubicaciones_actuales": len(ubicaciones_actuales),
