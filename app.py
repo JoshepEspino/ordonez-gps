@@ -9,7 +9,7 @@ from flask_cors import CORS
 import os
 import time
 import threading
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timedelta
 from main import TrackSolidAPI
 
 app = Flask(__name__)
@@ -42,6 +42,7 @@ if not all([CONFIG["APP_KEY"], CONFIG["APP_SECRET"], CONFIG["USER_EMAIL"], CONFI
 api_gps = None
 ubicaciones_actuales = []
 ultima_actualizacion = None
+lock_actualizacion = threading.Lock()
 
 def inicializar_api():
     """Inicializa la API"""
@@ -121,6 +122,21 @@ def actualizar_ubicaciones():
         print(f"❌ Error actualizando: {str(e)}")
         import traceback
         traceback.print_exc()
+
+def actualizar_si_necesario():
+    global ultima_actualizacion
+    
+    ahora = datetime.now()
+    intervalo = timedelta(seconds=CONFIG["INTERVALO"])
+    limite = intervalo * 2
+    
+    if ultima_actualizacion is None or ahora - ultima_actualizacion > limite:
+        if lock_actualizacion.acquire(blocking=False):
+            try:
+                actualizar_ubicaciones()
+            finally:
+                lock_actualizacion.release()
+
 
 def bucle_actualizacion():
     print(f"🔄 Iniciando actualización automática cada {CONFIG['INTERVALO']} segundos")
@@ -362,6 +378,7 @@ def index():
 def api_ubicaciones():
     """API: Obtiene las ubicaciones actuales"""
     try:
+        actualizar_si_necesario()
         return jsonify({
             "success": True,
             "ubicaciones": ubicaciones_actuales,
@@ -479,6 +496,7 @@ def api_forzar_actualizacion():
 def api_geojson():
     """API: Devuelve las ubicaciones en formato GeoJSON"""
     try:
+        actualizar_si_necesario()
         features = []
         
         for ubicacion in ubicaciones_actuales:
@@ -558,5 +576,3 @@ if __name__ == '__main__':
     print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
