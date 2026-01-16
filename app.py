@@ -25,7 +25,7 @@ CONFIG = {
     "APP_SECRET": os.getenv("TRACKSOLID_APP_SECRET"),
     "USER_EMAIL": os.getenv("TRACKSOLID_EMAIL"),
     "USER_PASSWORD": os.getenv("TRACKSOLID_PASSWORD"),
-    "INTERVALO": int(os.getenv("INTERVALO_ACTUALIZACION", "30"))  # segundos
+    "INTERVALO": int(os.getenv("INTERVALO_ACTUALIZACION", "10"))  # segundos
 }
 
 # Verificar que todas las credenciales estén configuradas
@@ -123,7 +123,6 @@ def actualizar_ubicaciones():
         traceback.print_exc()
 
 def bucle_actualizacion():
-    """Bucle que actualiza automáticamente"""
     print(f"🔄 Iniciando actualización automática cada {CONFIG['INTERVALO']} segundos")
     
     while True:
@@ -141,6 +140,7 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="refresh" content="10">
     <title>GPS Tracker - Estado Actual</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -558,3 +558,4 @@ if __name__ == '__main__':
     print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
+
