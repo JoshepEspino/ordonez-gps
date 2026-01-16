@@ -41,6 +41,8 @@ if not all([CONFIG["APP_KEY"], CONFIG["APP_SECRET"], CONFIG["USER_EMAIL"], CONFI
 # Variables globales
 api_gps = None
 ubicaciones_actuales = []
+historial_rutas = {}  # Diccionario para almacenar historial: {imei: [coords]}
+MAX_PUNTOS_HISTORIAL = 100  # Mantener últimos 100 puntos
 ultima_actualizacion = None
 lock_actualizacion = threading.Lock()
 
@@ -78,7 +80,7 @@ def inicializar_api():
 
 def actualizar_ubicaciones():
     """Actualiza las ubicaciones de todos los dispositivos"""
-    global ubicaciones_actuales, ultima_actualizacion
+    global ubicaciones_actuales, ultima_actualizacion, historial_rutas
     
     if not api_gps or not api_gps.access_token:
         print("⚠️ API no inicializada o sin token")
@@ -107,7 +109,23 @@ def actualizar_ubicaciones():
                     ubicacion['deviceName'] = nombre
                     ubicacion['imei'] = imei
                     nuevas_ubicaciones.append(ubicacion)
-                    print(f"   ✅ Ubicación obtenida: {ubicacion.get('lat')}, {ubicacion.get('lng')}")
+                    
+                    # Actualizar historial
+                    lat = float(ubicacion.get('lat', 0))
+                    lng = float(ubicacion.get('lng', 0))
+                    
+                    if imei not in historial_rutas:
+                        historial_rutas[imei] = []
+                    
+                    # Agregar punto si es diferente al último (evitar duplicados estáticos)
+                    nuevo_punto = [lng, lat]
+                    if not historial_rutas[imei] or historial_rutas[imei][-1] != nuevo_punto:
+                        historial_rutas[imei].append(nuevo_punto)
+                        # Limitar tamaño del historial
+                        if len(historial_rutas[imei]) > MAX_PUNTOS_HISTORIAL:
+                            historial_rutas[imei] = historial_rutas[imei][-MAX_PUNTOS_HISTORIAL:]
+                            
+                    print(f"   ✅ Ubicación obtenida: {lat}, {lng}")
                 else:
                     print(f"   ⚠️ No se obtuvo ubicación para {nombre}")
             except Exception as e:
@@ -156,7 +174,6 @@ HTML_TEMPLATE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="refresh" content="30">
     <title>GPS Tracker - Estado Actual</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
@@ -494,13 +511,18 @@ def api_forzar_actualizacion():
 
 @app.route('/api/geojson')
 def api_geojson():
-    """API: Devuelve las ubicaciones en formato GeoJSON"""
+    """API: Devuelve el trackline (rutas) por defecto para ArcGIS"""
+    # Redirigir la lógica a la función de rutas, ya que es lo que el usuario prefiere por defecto
+    return api_geojson_rutas()
+
+@app.route('/api/geojson/puntos')
+def api_geojson_puntos():
+    """API: Devuelve solo los puntos actuales (optimizado para ArcGIS)"""
     try:
         actualizar_si_necesario()
         features = []
         
         for ubicacion in ubicaciones_actuales:
-            # Crear feature GeoJSON para cada dispositivo
             feature = {
                 "type": "Feature",
                 "geometry": {
@@ -518,32 +540,61 @@ def api_geojson():
                     "accStatus": ubicacion.get('accStatus'),
                     "gpsTime": ubicacion.get('gpsTime'),
                     "status": ubicacion.get('status'),
-                    "powerValue": ubicacion.get('powerValue'),
-                    "gpsNum": ubicacion.get('gpsNum'),
-                    "locDesc": ubicacion.get('locDesc', '')
+                    "powerValue": ubicacion.get('powerValue')
                 }
             }
             features.append(feature)
         
-        # Crear FeatureCollection GeoJSON
-        geojson = {
+        return jsonify({
             "type": "FeatureCollection",
             "features": features,
             "metadata": {
-                "total": len(features),
-                "ultima_actualizacion": ultima_actualizacion.isoformat() if ultima_actualizacion else None,
-                "generado": datetime.now(UTC).isoformat()
+                "generated": datetime.now(UTC).isoformat(),
+                "type": "puntos"
             }
-        }
-        
-        return jsonify(geojson)
-        
+        })
     except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/geojson/rutas')
+def api_geojson_rutas():
+    """API: Devuelve solo las líneas de ruta (optimizado para ArcGIS)"""
+    try:
+        actualizar_si_necesario()
+        features = []
+        
+        for imei, coords in historial_rutas.items():
+            if len(coords) > 1:
+                # Buscar nombre del dispositivo
+                nombre = "Desconocido"
+                for u in ubicaciones_actuales:
+                    if u.get('imei') == imei:
+                        nombre = u.get('deviceName', 'Sin nombre')
+                        break
+                
+                feature = {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": coords
+                    },
+                    "properties": {
+                        "deviceName": nombre,
+                        "imei": imei
+                    }
+                }
+                features.append(feature)
+        
         return jsonify({
             "type": "FeatureCollection",
-            "features": [],
-            "error": str(e)
-        }), 500
+            "features": features,
+            "metadata": {
+                "generated": datetime.now(UTC).isoformat(),
+                "type": "rutas"
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Inicializar la API al importar el módulo (para Gunicorn/Render)
 def inicializar_aplicacion():
