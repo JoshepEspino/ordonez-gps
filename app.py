@@ -108,6 +108,41 @@ def actualizar_ubicaciones():
                 if ubicacion:
                     ubicacion['deviceName'] = nombre
                     ubicacion['imei'] = imei
+                    
+                    # Calcular Estado del Vehículo
+                    # 1. Apagado: ACC OFF
+                    # 2. Ralentí: ACC ON + Velocidad 0
+                    # 3. Movimiento: ACC ON + Velocidad > 0
+                    # 4. Trabajo: Reservado (Requiere sensor adicional)
+                    
+                    acc = ubicacion.get('accStatus', '0')
+                    try:
+                        speed = float(ubicacion.get('speed', 0))
+                    except:
+                        speed = 0
+                        
+                    estado_id = 1
+                    estado_desc = "VEHICULO APAGADO"
+                    
+                    if str(acc) == '1':
+                        if speed > 0:
+                            estado_id = 3
+                            estado_desc = "MOVIMIENTO"
+                        else:
+                            estado_id = 2
+                            estado_desc = "RALENTI"
+                            
+                    # Agregar campos calculados a la ubicación
+                    ubicacion['vehicleStateId'] = estado_id
+                    ubicacion['vehicleState'] = estado_desc
+                    
+                    # Normalizar combustible (trackerOil puede venir nulo)
+                    fuel = ubicacion.get('trackerOil')
+                    if fuel is None:
+                        fuel = ubicacion.get('trackerOils')
+                    
+                    ubicacion['fuelLevel'] = fuel if fuel is not None else "N/A"
+                    
                     nuevas_ubicaciones.append(ubicacion)
                     
                     # Actualizar historial
@@ -511,9 +546,74 @@ def api_forzar_actualizacion():
 
 @app.route('/api/geojson')
 def api_geojson():
-    """API: Devuelve el trackline (rutas) por defecto para ArcGIS"""
-    # Redirigir la lógica a la función de rutas, ya que es lo que el usuario prefiere por defecto
-    return api_geojson_rutas()
+    """API: Devuelve puntos y rutas combinados (comportamiento completo)"""
+    try:
+        actualizar_si_necesario()
+        features = []
+        
+        # 1. Agregar Puntos (Ubicación actual)
+        for ubicacion in ubicaciones_actuales:
+            feature_punto = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                        float(ubicacion.get('lng', 0)),
+                        float(ubicacion.get('lat', 0))
+                    ]
+                },
+                "properties": {
+                    "type": "current_location",
+                    "deviceName": ubicacion.get('deviceName', 'Sin nombre'),
+                    "imei": ubicacion.get('imei'),
+                    "speed": ubicacion.get('speed', 0),
+                    "direction": ubicacion.get('direction', 0),
+                    "accStatus": ubicacion.get('accStatus'),
+                    "gpsTime": ubicacion.get('gpsTime'),
+                    "status": ubicacion.get('status'),
+                    "powerValue": ubicacion.get('powerValue'),
+                    # Nuevos campos solicitados
+                    "vehicleState": ubicacion.get('vehicleState', 'DESCONOCIDO'),
+                    "vehicleStateId": ubicacion.get('vehicleStateId', 0),
+                    "fuelLevel": ubicacion.get('fuelLevel', 'N/A')
+                }
+            }
+            features.append(feature_punto)
+
+        # 2. Agregar Rutas (Tracklines)
+        for imei, coords in historial_rutas.items():
+            if len(coords) > 1:
+                # Buscar nombre del dispositivo
+                nombre = "Desconocido"
+                for u in ubicaciones_actuales:
+                    if u.get('imei') == imei:
+                        nombre = u.get('deviceName', 'Sin nombre')
+                        break
+                
+                feature_ruta = {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": coords
+                    },
+                    "properties": {
+                        "type": "trackline",
+                        "deviceName": nombre,
+                        "imei": imei
+                    }
+                }
+                features.append(feature_ruta)
+        
+        return jsonify({
+            "type": "FeatureCollection",
+            "features": features,
+            "metadata": {
+                "generated": datetime.now(UTC).isoformat(),
+                "type": "completo"
+            }
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/geojson/puntos')
 def api_geojson_puntos():
@@ -540,7 +640,10 @@ def api_geojson_puntos():
                     "accStatus": ubicacion.get('accStatus'),
                     "gpsTime": ubicacion.get('gpsTime'),
                     "status": ubicacion.get('status'),
-                    "powerValue": ubicacion.get('powerValue')
+                    "powerValue": ubicacion.get('powerValue'),
+                    "vehicleState": ubicacion.get('vehicleState', 'DESCONOCIDO'),
+                    "vehicleStateId": ubicacion.get('vehicleStateId', 0),
+                    "fuelLevel": ubicacion.get('fuelLevel', 'N/A')
                 }
             }
             features.append(feature)
