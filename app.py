@@ -42,8 +42,9 @@ if not all([CONFIG["APP_KEY"], CONFIG["APP_SECRET"], CONFIG["USER_EMAIL"], CONFI
 api_gps = None
 ubicaciones_actuales = []
 historial_rutas = {}  # Diccionario para almacenar historial: {imei: [coords]}
-MAX_PUNTOS_HISTORIAL = 100  # Mantener últimos 100 puntos
+MAX_PUNTOS_HISTORIAL = 5000  # Mantener últimos 5000 puntos (aprox 41 horas a 30s)
 ultima_actualizacion = None
+ultimo_dia_limpieza = None  # Para controlar el borrado diario
 lock_actualizacion = threading.Lock()
 
 def inicializar_api():
@@ -80,8 +81,27 @@ def inicializar_api():
 
 def actualizar_ubicaciones():
     """Actualiza las ubicaciones de todos los dispositivos"""
-    global ubicaciones_actuales, ultima_actualizacion, historial_rutas
+    global ubicaciones_actuales, ultima_actualizacion, historial_rutas, ultimo_dia_limpieza
     
+    # --- Lógica de Limpieza Diaria (00:00 UTC-5) ---
+    try:
+        ahora_utc = datetime.now(UTC)
+        ahora_peru = ahora_utc - timedelta(hours=5)
+        dia_actual = ahora_peru.date()
+        
+        if ultimo_dia_limpieza is None:
+            # Primera ejecución, inicializar con el día actual
+            ultimo_dia_limpieza = dia_actual
+        elif dia_actual != ultimo_dia_limpieza:
+            # Cambio de día detectado -> Limpiar historial
+            print(f"\n🧹 [AUTO-LIMPIEZA] Cambio de día detectado ({ultimo_dia_limpieza} -> {dia_actual})")
+            print("   Borrando historial de rutas para iniciar nuevo día...")
+            historial_rutas = {}
+            ultimo_dia_limpieza = dia_actual
+    except Exception as e:
+        print(f"⚠️ Error en lógica de limpieza diaria: {e}")
+    # -----------------------------------------------
+
     if not api_gps or not api_gps.access_token:
         print("⚠️ API no inicializada o sin token")
         return
@@ -546,39 +566,38 @@ def api_forzar_actualizacion():
 
 @app.route('/api/geojson')
 def api_geojson():
-    """API: Devuelve puntos y rutas combinados (comportamiento completo)"""
+    """API: Devuelve Puntos y Tracklines combinados"""
     try:
         actualizar_si_necesario()
         features = []
         
         # 1. Agregar Puntos (Ubicación actual)
-        #for ubicacion in ubicaciones_actuales:
-        #    feature_punto = {
-        #        "type": "Feature",
-        #        "geometry": {
-        #            "type": "Point",
-        #            "coordinates": [
-        #                float(ubicacion.get('lng', 0)),
-        #                float(ubicacion.get('lat', 0))
-        #            ]
-        #        },
-        #        "properties": {
-        #            "type": "current_location",
-        #            "deviceName": ubicacion.get('deviceName', 'Sin nombre'),
-        #            "imei": ubicacion.get('imei'),
-        #            "speed": ubicacion.get('speed', 0),
-        #            "direction": ubicacion.get('direction', 0),
-        #            "accStatus": ubicacion.get('accStatus'),
-        #            "gpsTime": ubicacion.get('gpsTime'),
-        #            "status": ubicacion.get('status'),
-        #            "powerValue": ubicacion.get('powerValue'),
-        #            # Nuevos campos solicitados
-        #            "vehicleState": ubicacion.get('vehicleState', 'DESCONOCIDO'),
-        #            "vehicleStateId": ubicacion.get('vehicleStateId', 0),
-        #            "fuelLevel": ubicacion.get('fuelLevel', 'N/A')
-        #        }
-        #    }
-        #    features.append(feature_punto)
+        for ubicacion in ubicaciones_actuales:
+            feature_punto = {
+                "type": "Feature",
+                "geometry": {
+                    "type": "Point",
+                    "coordinates": [
+                        float(ubicacion.get('lng', 0)),
+                        float(ubicacion.get('lat', 0))
+                    ]
+                },
+                "properties": {
+                    "type": "current_location",
+                    "deviceName": ubicacion.get('deviceName', 'Sin nombre'),
+                    "imei": ubicacion.get('imei'),
+                    "speed": ubicacion.get('speed', 0),
+                    "direction": ubicacion.get('direction', 0),
+                    "accStatus": ubicacion.get('accStatus'),
+                    "gpsTime": ubicacion.get('gpsTime'),
+                    "status": ubicacion.get('status'),
+                    "powerValue": ubicacion.get('powerValue'),
+                    "vehicleState": ubicacion.get('vehicleState', 'DESCONOCIDO'),
+                    "vehicleStateId": ubicacion.get('vehicleStateId', 0),
+                    "fuelLevel": ubicacion.get('fuelLevel', 'N/A')
+                }
+            }
+            features.append(feature_punto)
 
         # 2. Agregar Rutas (Tracklines)
         for imei, coords in historial_rutas.items():
@@ -619,13 +638,13 @@ def api_geojson():
             "features": features,
             "metadata": {
                 "generated": datetime.now(UTC).isoformat(),
-                "type": "tracklines"
+                "type": "completo"
             }
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/geojson/puntos')
+@app.route('/api/puntos/geojson')
 def api_geojson_puntos():
     """API: Devuelve solo los puntos actuales (optimizado para ArcGIS)"""
     try:
@@ -669,7 +688,7 @@ def api_geojson_puntos():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/geojson/rutas')
+@app.route('/api/linea/geojson')
 def api_geojson_rutas():
     """API: Devuelve solo las líneas de ruta (optimizado para ArcGIS)"""
     try:
@@ -678,11 +697,13 @@ def api_geojson_rutas():
         
         for imei, coords in historial_rutas.items():
             if len(coords) > 1:
-                # Buscar nombre del dispositivo
+                # Buscar nombre del dispositivo y datos actuales
                 nombre = "Desconocido"
+                datos_actuales = {}
                 for u in ubicaciones_actuales:
                     if u.get('imei') == imei:
                         nombre = u.get('deviceName', 'Sin nombre')
+                        datos_actuales = u
                         break
                 
                 feature = {
@@ -693,7 +714,14 @@ def api_geojson_rutas():
                     },
                     "properties": {
                         "deviceName": nombre,
-                        "imei": imei
+                        "imei": imei,
+                        "speed": datos_actuales.get('speed', 0),
+                        "gpsTime": datos_actuales.get('gpsTime', ''),
+                        "direction": datos_actuales.get('direction', 0),
+                        "powerValue": datos_actuales.get('powerValue', 0),
+                        "vehicleState": datos_actuales.get('vehicleState', 'DESCONOCIDO'),
+                        "vehicleStateId": datos_actuales.get('vehicleStateId', 0),
+                        "fuelLevel": datos_actuales.get('fuelLevel', 'N/A')
                     }
                 }
                 features.append(feature)
@@ -740,6 +768,3 @@ if __name__ == '__main__':
     print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
-
