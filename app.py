@@ -602,15 +602,14 @@ def api_geojson():
                         "type": "trackline",
                         "deviceName": nombre,
                         "imei": imei,
-                        "speed": ubicacion.get('speed', 0),
-                        "gpsTime": ubicacion.get('gpsTime'),
-                        "accStatus": ubicacion.get('accStatus'),
-                        "status": ubicacion.get('status'),
-                        "direction": ubicacion.get('direction', 0),
-                        "powerValue": ubicacion.get('powerValue'),
+                        # Agregamos también el estado actual a la línea por si es útil
                         "vehicleState": datos_actuales.get('vehicleState', 'DESCONOCIDO'),
                         "vehicleStateId": datos_actuales.get('vehicleStateId', 0),
-                        "fuelLevel": datos_actuales.get('fuelLevel', 'N/A')
+                        "fuelLevel": datos_actuales.get('fuelLevel', 'N/A'),
+                        "speed": datos_actuales.get('speed', 0),
+                        "gpsTime": datos_actuales.get('gpsTime', ''),
+                        "direction": datos_actuales.get('direction', 0),
+                        "powerValue": datos_actuales.get('powerValue', 0)
                     }
                 }
                 features.append(feature_ruta)
@@ -741,5 +740,6 @@ if __name__ == '__main__':
     print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
+
 
 
