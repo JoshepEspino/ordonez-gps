@@ -552,14 +552,14 @@ def api_geojson():
         features = []
         
         # 1. Agregar Puntos (Ubicación actual)
-        for ubicacion in ubicaciones_actuales:
-            feature_punto = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [
-                        float(ubicacion.get('lng', 0)),
-                        float(ubicacion.get('lat', 0))
+        #for ubicacion in ubicaciones_actuales:
+        #    feature_punto = {
+        #        "type": "Feature",
+        #        "geometry": {
+        #            "type": "Point",
+        #            "coordinates": [
+        #                float(ubicacion.get('lng', 0)),
+        #                float(ubicacion.get('lat', 0))
                     ]
                 },
                 "properties": {
@@ -730,3 +730,4 @@ if __name__ == '__main__':
     print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
+
