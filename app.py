@@ -552,42 +552,44 @@ def api_geojson():
         features = []
         
         # 1. Agregar Puntos (Ubicación actual)
-        for ubicacion in ubicaciones_actuales:
-            feature_punto = {
-                "type": "Feature",
-                "geometry": {
-                    "type": "Point",
-                    "coordinates": [
-                        float(ubicacion.get('lng', 0)),
-                        float(ubicacion.get('lat', 0))
-                    ]
-                },
-                "properties": {
-                    "type": "current_location",
-                    "deviceName": ubicacion.get('deviceName', 'Sin nombre'),
-                    "imei": ubicacion.get('imei'),
-                    "speed": ubicacion.get('speed', 0),
-                    "direction": ubicacion.get('direction', 0),
-                    "accStatus": ubicacion.get('accStatus'),
-                    "gpsTime": ubicacion.get('gpsTime'),
-                    "status": ubicacion.get('status'),
-                    "powerValue": ubicacion.get('powerValue'),
-                    # Nuevos campos solicitados
-                    "vehicleState": ubicacion.get('vehicleState', 'DESCONOCIDO'),
-                    "vehicleStateId": ubicacion.get('vehicleStateId', 0),
-                    "fuelLevel": ubicacion.get('fuelLevel', 'N/A')
-                }
-            }
-            features.append(feature_punto)
+        #for ubicacion in ubicaciones_actuales:
+        #    feature_punto = {
+        #        "type": "Feature",
+        #        "geometry": {
+        #            "type": "Point",
+        #            "coordinates": [
+        #                float(ubicacion.get('lng', 0)),
+        #                float(ubicacion.get('lat', 0))
+        #            ]
+        #        },
+        #        "properties": {
+        #            "type": "current_location",
+        #            "deviceName": ubicacion.get('deviceName', 'Sin nombre'),
+        #            "imei": ubicacion.get('imei'),
+        #            "speed": ubicacion.get('speed', 0),
+        #            "direction": ubicacion.get('direction', 0),
+        #            "accStatus": ubicacion.get('accStatus'),
+        #            "gpsTime": ubicacion.get('gpsTime'),
+        #            "status": ubicacion.get('status'),
+        #            "powerValue": ubicacion.get('powerValue'),
+        #            # Nuevos campos solicitados
+        #            "vehicleState": ubicacion.get('vehicleState', 'DESCONOCIDO'),
+        #            "vehicleStateId": ubicacion.get('vehicleStateId', 0),
+        #            "fuelLevel": ubicacion.get('fuelLevel', 'N/A')
+        #        }
+        #    }
+        #    features.append(feature_punto)
 
         # 2. Agregar Rutas (Tracklines)
         for imei, coords in historial_rutas.items():
             if len(coords) > 1:
-                # Buscar nombre del dispositivo
+                # Buscar nombre del dispositivo y datos actuales para enriquecer el trackline
                 nombre = "Desconocido"
+                datos_actuales = {}
                 for u in ubicaciones_actuales:
                     if u.get('imei') == imei:
                         nombre = u.get('deviceName', 'Sin nombre')
+                        datos_actuales = u
                         break
                 
                 feature_ruta = {
@@ -599,7 +601,11 @@ def api_geojson():
                     "properties": {
                         "type": "trackline",
                         "deviceName": nombre,
-                        "imei": imei
+                        "imei": imei,
+                        # Agregamos también el estado actual a la línea por si es útil
+                        "vehicleState": datos_actuales.get('vehicleState', 'DESCONOCIDO'),
+                        "vehicleStateId": datos_actuales.get('vehicleStateId', 0),
+                        "fuelLevel": datos_actuales.get('fuelLevel', 'N/A')
                     }
                 }
                 features.append(feature_ruta)
@@ -609,7 +615,7 @@ def api_geojson():
             "features": features,
             "metadata": {
                 "generated": datetime.now(UTC).isoformat(),
-                "type": "completo"
+                "type": "tracklines"
             }
         })
     except Exception as e:
@@ -730,3 +736,4 @@ if __name__ == '__main__':
     print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
+
