@@ -551,7 +551,7 @@ def api_geojson():
         actualizar_si_necesario()
         features = []
         
-         1. Agregar Puntos (Ubicación actual)
+        # 1. Agregar Puntos (Ubicación actual)
         for ubicacion in ubicaciones_actuales:
             feature_punto = {
                 "type": "Feature",
@@ -730,6 +730,3 @@ if __name__ == '__main__':
     print(f"🔄 Actualización automática: cada {CONFIG['INTERVALO']} segundos\n")
     
     app.run(host='0.0.0.0', port=port, debug=False)
-
-
-
